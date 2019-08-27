@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+
+  <title>fmirkes.github.io</title>
+  <link href="https://fmirkes.github.io/"/>
+  <icon>https://fmirkes.github.io/favicon.ico</icon>
+  <updated>2019-08-27T00:00:00</updated>
+  
+  <id>https://fmirkes.github.io/</id>
+
+  <author>
+    <name>Florian Mirkes</name>
+  </author>
+
+  
+  <entry>
+    <title>Enable right-click for the Raspberry Pi touchscreen</title>
+    <link href="https://fmirkes.github.io/articles/20190827.html"/>
+    <id>https://fmirkes.github.io/articles/20190827.html</id>
+    <updated>2019-08-27T00:00:00</updated>
+    <content type="html">
+      <h2>Enable right-click for the Raspberry Pi touchscreen</h2>
+<p><strong>(Yes, even under Raspbian 10 Buster)</strong></p>
+<blockquote>
+<p>tl;dr</p>
+<ol>
+<li>
+<p>Install <a href="https://github.com/PeterCxy/evdev-right-click-emulation">evdev-right-click-emulation</a></p>
+</li>
+<li>
+<p>Load the <em>uinput</em> kernel module</p>
+</li>
+<li>
+<p>Make sure that you have access to /dev/uinput and /dev/input</p>
+</li>
+<li>
+<p>Run evdev-right-click-emulation</p>
+</li>
+</ol>
+</blockquote>
+<p>Finally I got my hands on a new Raspberry Pi 4, and I wanted to use the official 7" touchscreen with it. There was only one problem: The right click didn't work.</p>
+<p>There are multiple ways floating around the web to enable it (e.g. in the <a href="https://www.raspberrypi.org/forums/viewtopic.php?t=138575">official forums</a>), but none of them worked for me under Raspbian 10.
+Even the config files in <em>/usr/share/X11/xorg.conf.d</em> look like it should work out of the box.</p>
+<p>After a long frustrating search I found a solution: 
+A small program called <a href="https://github.com/PeterCxy/evdev-right-click-emulation">evdev-right-click-emulation</a>.</p>
+<h3>Installation of evdev-rce</h3>
+<p>Installation is pretty straight forward:</p>
+<div class="codehilite"><pre><span></span>sudo apt install build-essential libevdev2 libevdev-dev
+git clone <span class="s1">&#39;https://github.com/PeterCxy/evdev-right-click-emulation.git&#39;</span>
+<span class="nb">cd</span> <span class="s1">&#39;evdev-right-click-emulation&#39;</span>
+make all
+sudo cp <span class="s1">&#39;out/evdev-rce&#39;</span> <span class="s1">&#39;/usr/local/bin/&#39;</span>
+chmod +x <span class="s1">&#39;/usr/local/bin/evdev-rce&#39;</span>
+</pre></div>
+
+
+<p>You enable right-clicking by running it via <code>sudo evdev-rce</code> from a graphical terminal.</p>
+<p>Now there is the next problem: How do you enable autostart for normal users without entering a password? 
+Of course there are different ways like setting the setuid bit, or using the <em>NOPASSWD</em> directive in <em>/etc/sudoers</em>.</p>
+<p>But why run it as <em>root</em> when you can run it as normal user?</p>
+<h3>Run evdev-rce as normal user</h3>
+<p>First of all your user (usually <em>pi</em>) needs access to the input devices in <em>/dev/input</em>:</p>
+<div class="codehilite"><pre><span></span>sudo usermod -G <span class="s1">&#39;input&#39;</span> -a pi
+</pre></div>
+
+
+<p><em>evdev-rce</em> uses the kernel module <a href="https://www.kernel.org/doc/html/latest/input/uinput.html">uinput</a>, which is used to create virtual input devices. It has to be automatically loaded at boot:</p>
+<div class="codehilite"><pre><span></span><span class="nb">echo</span> <span class="s1">&#39;uinput&#39;</span> <span class="p">|</span> sudo tee -a /etc/modules
+</pre></div>
+
+
+<p>The <em>uinput</em> device can be found under <em>/dev/uinput</em>. By default only root is allowed to access it. We are going to change that with a custom <em>udev</em> rule:</p>
+<div class="codehilite"><pre><span></span><span class="c1"># /etc/udev/rules.d/99-uinput.rules</span>
+
+<span class="nv">KERNEL</span><span class="o">==</span><span class="s2">&quot;uinput&quot;</span>, <span class="nv">MODE</span><span class="o">=</span><span class="s2">&quot;0660&quot;</span>, <span class="nv">GROUP</span><span class="o">=</span><span class="s2">&quot;input&quot;</span>
+</pre></div>
+
+
+<div class="codehilite"><pre><span></span>sudo udevadm control --reload-rules
+sudo udevadm trigger
+</pre></div>
+
+
+<p>After a re-login, you should be able to run <em>evdev-rce</em> as normal user.</p>
+<h3>Startup evdev-rce on login</h3>
+<p>Almost done. To start <em>evdev-rce</em> on login just create the following file:</p>
+<div class="codehilite"><pre><span></span><span class="c1"># $HOME/.config/autostart/evdev-rce.desktop</span>
+
+<span class="o">[</span>Desktop Entry<span class="o">]</span>
+<span class="nv">Version</span><span class="o">=</span><span class="m">1</span>.0
+<span class="nv">Type</span><span class="o">=</span>Application
+<span class="nv">Name</span><span class="o">=</span>evdev-rce
+<span class="nv">GenericName</span><span class="o">=</span>Enable long-press-to-right-click gesture
+<span class="nv">Exec</span><span class="o">=</span>env <span class="nv">LONG_CLICK_INTERVAL</span><span class="o">=</span><span class="m">500</span> <span class="nv">LONG_CLICK_FUZZ</span><span class="o">=</span><span class="m">50</span> /usr/local/bin/evdev-rce
+<span class="nv">Terminal</span><span class="o">=</span><span class="nb">true</span>
+<span class="nv">StartupNotify</span><span class="o">=</span><span class="nb">false</span>
+</pre></div>
+    </content>
+  </entry>
+  
+</feed>
